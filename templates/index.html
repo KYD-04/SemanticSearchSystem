@@ -58,6 +58,19 @@
         .result-score { font-size: 11px; color: #6b7280; background: #f3f4f6; padding: 2px 6px; border-radius: 4px; }
         .result-score.primary { background: #dbeafe; color: #1d4ed8; font-weight: 600; }
         .result-fragment { font-size: 13px; color: #4b5563; line-height: 1.5; }
+        .result-feedback { display: flex; gap: 6px; margin-top: 8px; }
+        .feedback-btn { padding: 4px 12px; border: 1px solid #d1d5db; border-radius: 4px; cursor: pointer; font-size: 12px; background: white; }
+        .feedback-btn:hover { background: #f3f4f6; }
+        .feedback-btn.positive { border-color: #10b981; color: #10b981; }
+        .feedback-btn.positive.active { background: #10b981; color: white; }
+        .feedback-btn.negative { border-color: #ef4444; color: #ef4444; }
+        .feedback-btn.negative.active { background: #ef4444; color: white; }
+        .refine-section { margin-top: 15px; padding: 12px; background: #fef3c7; border-radius: 6px; display: none; }
+        .refine-section.active { display: block; }
+        .refine-btn { background: #f59e0b; }
+        .refine-btn:hover { background: #d97706; }
+        .refine-metrics { margin-top: 8px; font-size: 12px; color: #6b7280; }
+        .refine-metric-cb { display: inline-flex; align-items: center; gap: 3px; margin-right: 10px; }
         .preview-content { white-space: pre-wrap; font-size: 13px; line-height: 1.6; max-height: 600px; overflow-y: auto; color: #374151; }
         .highlight { background: #fef08a; padding: 2px 0; }
         .loading { text-align: center; padding: 20px; color: #6b7280; }
@@ -102,9 +115,17 @@
                     <div class="metrics-checkboxes" id="metricsCheckboxes"></div>
                     <label>Сортировать по:</label>
                     <select class="sort-select" id="sortSelect"></select>
+                    <div class="refine-metrics">
+                        <label style="margin-top: 8px;">Учитывать при уточнении:</label>
+                        <div id="refineMetricsCheckboxes" style="margin-top: 4px;"></div>
+                    </div>
                 </div>
                 
-                <button class="btn" onclick="search()" style="margin-bottom: 15px;">Найти</button>
+                <button class="btn" onclick="search()" style="margin-bottom: 10px;">Найти</button>
+                <div class="refine-section" id="refineSection">
+                    <button class="btn refine-btn" onclick="refineSearch()">Уточнить результаты</button>
+                    <div style="font-size: 11px; color: #92400e; margin-top: 6px;">Отмечено: <span id="feedbackCount">0</span> результатов</div>
+                </div>
                 <div class="results-list" id="resultsList">
                     <div class="empty">Введите запрос для поиска</div>
                 </div>
@@ -124,6 +145,7 @@
         let filesData = {};
         let availableMetrics = [];
         let sortByMetric = 'metric_cosine';
+        let feedback = {}; // {"filepath:fragment_index": "positive"|"negative"}
         
         const metricLabels = {
             'metric_cosine': 'Косинусное расстояние',
@@ -158,6 +180,17 @@
                     ${metricLabels[m.name] || m.display_name}
                 </option>
             `).join('');
+            
+            // Чекбоксы для уточнения (только embed=true метрики)
+            const refineCheckboxes = document.getElementById('refineMetricsCheckboxes');
+            refineCheckboxes.innerHTML = availableMetrics
+                .filter(m => m.embed)
+                .map(m => `
+                    <label class="refine-metric-cb">
+                        <input type="checkbox" value="${m.name}" ${m.name === 'metric_cosine' ? 'checked' : ''}>
+                        ${metricLabels[m.name] || m.display_name}
+                    </label>
+                `).join('');
             
             sortSelect.addEventListener('change', () => {
                 sortByMetric = sortSelect.value;
@@ -333,7 +366,11 @@
                     return;
                 }
                 
+                feedback = {};
+                updateFeedbackUI();
+                
                 list.innerHTML = currentResults.map((r, i) => {
+                    const key = `${r.filepath}:${r.fragment_index}`;
                     const scoresHtml = Object.entries(r.scores).map(([name, val]) => {
                         const isPrimary = name === sortByMetric;
                         const label = metricLabels[name] || name.replace('metric_', '');
@@ -341,12 +378,16 @@
                     }).join('');
                     
                     return `
-                        <div class="result-item" onclick="showPreview(${i})">
-                            <div class="result-header">
+                        <div class="result-item" data-key="${key}">
+                            <div class="result-header" onclick="showPreview(${i})">
                                 <span class="result-file">${r.filename}</span>
                                 <div class="result-scores">${scoresHtml}</div>
                             </div>
-                            <div class="result-fragment">${escapeHtml(r.fragment.substring(0, 150))}${r.fragment.length > 150 ? '...' : ''}</div>
+                            <div class="result-fragment" onclick="showPreview(${i})">${escapeHtml(r.fragment.substring(0, 150))}${r.fragment.length > 150 ? '...' : ''}</div>
+                            <div class="result-feedback">
+                                <button class="feedback-btn positive" onclick="setFeedback(${i}, 'positive', event)">+ Релевантно</button>
+                                <button class="feedback-btn negative" onclick="setFeedback(${i}, 'negative', event)">− Не релевантно</button>
+                            </div>
                         </div>
                     `;
                 }).join('');
@@ -385,6 +426,115 @@
         
         function escapeRegExp(string) {
             return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        }
+        
+        function setFeedback(index, type, event) {
+            event.stopPropagation();
+            const r = currentResults[index];
+            const key = `${r.filepath}:${r.fragment_index}`;
+            
+            if (feedback[key] === type) {
+                delete feedback[key];
+            } else {
+                feedback[key] = type;
+            }
+            
+            // Обновить UI кнопок
+            const item = document.querySelector(`.result-item[data-key="${CSS.escape(key)}"]`);
+            if (item) {
+                item.querySelectorAll('.feedback-btn').forEach(btn => btn.classList.remove('active'));
+                if (feedback[key]) {
+                    item.querySelector(`.feedback-btn.${feedback[key]}`).classList.add('active');
+                }
+            }
+            
+            updateFeedbackUI();
+        }
+        
+        function updateFeedbackUI() {
+            const count = Object.keys(feedback).length;
+            document.getElementById('feedbackCount').textContent = count;
+            document.getElementById('refineSection').classList.toggle('active', count > 0);
+        }
+        
+        function getRefineMetrics() {
+            const checked = document.querySelectorAll('#refineMetricsCheckboxes input:checked');
+            return Array.from(checked).map(c => c.value);
+        }
+        
+        async function refineSearch() {
+            const query = document.getElementById('searchInput').value.trim();
+            if (!query) return;
+            
+            const positive = [];
+            const negative = [];
+            
+            for (const [key, type] of Object.entries(feedback)) {
+                const [filepath, fragIdx] = key.split(':');
+                const item = { filepath, fragment_index: parseInt(fragIdx) };
+                if (type === 'positive') positive.push(item);
+                else negative.push(item);
+            }
+            
+            const selectedMetrics = getSelectedMetrics();
+            const refineMetrics = getRefineMetrics();
+            sortByMetric = document.getElementById('sortSelect').value;
+            
+            const list = document.getElementById('resultsList');
+            list.innerHTML = '<div class="loading">Уточнение...</div>';
+            
+            try {
+                const res = await fetch('/api/refine', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ 
+                        query,
+                        positive,
+                        negative,
+                        metrics: selectedMetrics,
+                        refine_metrics: refineMetrics,
+                        sort_by: sortByMetric
+                    })
+                });
+                currentResults = await res.json();
+                
+                // Сохраняем feedback и перерисовываем
+                const savedFeedback = {...feedback};
+                
+                if (currentResults.length === 0) {
+                    list.innerHTML = '<div class="empty">Ничего не найдено</div>';
+                    return;
+                }
+                
+                list.innerHTML = currentResults.map((r, i) => {
+                    const key = `${r.filepath}:${r.fragment_index}`;
+                    const fb = savedFeedback[key];
+                    const scoresHtml = Object.entries(r.scores).map(([name, val]) => {
+                        const isPrimary = name === sortByMetric;
+                        const label = metricLabels[name] || name.replace('metric_', '');
+                        return `<span class="result-score ${isPrimary ? 'primary' : ''}" title="${label}">${(val * 100).toFixed(1)}%</span>`;
+                    }).join('');
+                    
+                    return `
+                        <div class="result-item" data-key="${key}">
+                            <div class="result-header" onclick="showPreview(${i})">
+                                <span class="result-file">${r.filename}</span>
+                                <div class="result-scores">${scoresHtml}</div>
+                            </div>
+                            <div class="result-fragment" onclick="showPreview(${i})">${escapeHtml(r.fragment.substring(0, 150))}${r.fragment.length > 150 ? '...' : ''}</div>
+                            <div class="result-feedback">
+                                <button class="feedback-btn positive ${fb === 'positive' ? 'active' : ''}" onclick="setFeedback(${i}, 'positive', event)">+ Релевантно</button>
+                                <button class="feedback-btn negative ${fb === 'negative' ? 'active' : ''}" onclick="setFeedback(${i}, 'negative', event)">− Не релевантно</button>
+                            </div>
+                        </div>
+                    `;
+                }).join('');
+                
+                feedback = savedFeedback;
+                updateFeedbackUI();
+            } catch (e) {
+                list.innerHTML = '<div class="empty">Ошибка уточнения</div>';
+            }
         }
         
         loadMetrics();

@@ -248,6 +248,96 @@ def search():
     return jsonify(results[:50])
 
 
+@app.route('/api/refine', methods=['POST'])
+def refine_search():
+    """Уточнить поиск на основе обратной связи."""
+    import numpy as np
+    
+    data = request.json
+    query = data.get('query', '').strip()
+    positive_fragments = data.get('positive', [])  # [{filepath, fragment_index}]
+    negative_fragments = data.get('negative', [])  # [{filepath, fragment_index}]
+    selected_metrics = data.get('metrics', ['metric_cosine'])
+    refine_metrics = data.get('refine_metrics', ['metric_cosine'])  # метрики для уточнения
+    sort_by = data.get('sort_by', 'metric_cosine')
+    
+    if not query:
+        return jsonify({"error": "Пустой запрос"}), 400
+    
+    # Получить исходный эмбеддинг запроса
+    query_embedding = embedding_manager.get_embedding(query)
+    documents = storage.get_all_documents(config['embedding_model'])
+    
+    # Построить индекс документов для быстрого доступа
+    doc_index = {doc['filepath']: doc for doc in documents}
+    
+    # Rocchio algorithm: q' = α*q + β*avg(pos) - γ*avg(neg)
+    alpha, beta, gamma = 1.0, 0.75, 0.25
+    
+    # Собрать положительные и отрицательные эмбеддинги
+    pos_embeddings = []
+    neg_embeddings = []
+    
+    for item in positive_fragments:
+        doc = doc_index.get(item['filepath'])
+        if doc and item['fragment_index'] < len(doc['embeddings']):
+            pos_embeddings.append(doc['embeddings'][item['fragment_index']])
+    
+    for item in negative_fragments:
+        doc = doc_index.get(item['filepath'])
+        if doc and item['fragment_index'] < len(doc['embeddings']):
+            neg_embeddings.append(doc['embeddings'][item['fragment_index']])
+    
+    # Модифицировать вектор запроса
+    modified_query = alpha * query_embedding
+    if pos_embeddings:
+        modified_query = modified_query + beta * np.mean(pos_embeddings, axis=0)
+    if neg_embeddings:
+        modified_query = modified_query - gamma * np.mean(neg_embeddings, axis=0)
+    
+    # Нормализовать
+    modified_query = modified_query / (np.linalg.norm(modified_query) + 1e-8)
+    
+    # Получить информацию о метриках
+    all_metrics_info = {m['name']: m for m in RelevanceMetric.get_all_metrics()}
+    
+    results = []
+    for doc in documents:
+        fragments = doc['fragments']
+        embeddings = doc['embeddings']
+        
+        for i, (fragment, emb) in enumerate(zip(fragments, embeddings)):
+            scores = {}
+            for metric_name in selected_metrics:
+                metric_method = RelevanceMetric.get_method(metric_name)
+                if metric_method:
+                    metric_info = all_metrics_info.get(metric_name, {})
+                    uses_embed = metric_info.get('embed', True)
+                    
+                    try:
+                        if uses_embed:
+                            # Использовать модифицированный вектор для метрик уточнения
+                            q_vec = modified_query if metric_name in refine_metrics else query_embedding
+                            score = metric_method(q_vec, emb, embed=True)
+                        else:
+                            score = metric_method(query, fragment, embed=False)
+                        scores[metric_name] = round(float(score), 4)
+                    except:
+                        scores[metric_name] = 0.0
+            
+            results.append({
+                "filename": doc['filename'],
+                "filepath": doc['filepath'],
+                "fragment": fragment,
+                "fragment_index": i,
+                "scores": scores,
+                "full_text": doc['full_text']
+            })
+    
+    results.sort(key=lambda x: x['scores'].get(sort_by, 0), reverse=True)
+    return jsonify(results[:50])
+
+
 @app.route('/api/document/<path:filepath>')
 def get_document(filepath):
     """Получить документ для предпросмотра."""
