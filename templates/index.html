@@ -10,20 +10,33 @@
         .container { max-width: 1400px; margin: 0 auto; padding: 20px; }
         header { background: #2563eb; color: white; padding: 20px; margin-bottom: 20px; border-radius: 8px; }
         header h1 { font-size: 24px; }
-        .main-grid { display: grid; grid-template-columns: 300px 1fr 400px; gap: 20px; }
+        .main-grid { display: grid; grid-template-columns: 350px 1fr 400px; gap: 20px; }
         .panel { background: white; border-radius: 8px; padding: 20px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
         .panel h2 { font-size: 16px; margin-bottom: 15px; color: #374151; border-bottom: 1px solid #e5e7eb; padding-bottom: 10px; }
         .btn { background: #2563eb; color: white; border: none; padding: 10px 20px; border-radius: 6px; cursor: pointer; font-size: 14px; width: 100%; }
         .btn:hover { background: #1d4ed8; }
         .btn:disabled { background: #9ca3af; cursor: not-allowed; }
-        .file-list { list-style: none; max-height: 300px; overflow-y: auto; }
-        .file-item { display: flex; align-items: center; gap: 10px; padding: 8px; border-bottom: 1px solid #f3f4f6; font-size: 14px; }
+        .file-list { list-style: none; max-height: 400px; overflow-y: auto; margin-top: 15px; }
+        .file-item { display: flex; align-items: center; gap: 10px; padding: 10px; border-bottom: 1px solid #f3f4f6; font-size: 14px; }
         .file-item:last-child { border-bottom: none; }
-        .status-icon { width: 20px; height: 20px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 12px; flex-shrink: 0; }
+        
+        .status-badge { min-width: 40px; height: 24px; border-radius: 12px; display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 600; flex-shrink: 0; }
         .status-green { background: #10b981; color: white; }
         .status-yellow { background: #f59e0b; color: white; }
         .status-red { background: #ef4444; color: white; }
-        .file-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .status-processing { background: #3b82f6; color: white; min-width: 50px; }
+        .status-pending { background: #e5e7eb; color: #6b7280; }
+        
+        .file-info { flex: 1; min-width: 0; }
+        .file-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 500; }
+        .file-eta { font-size: 11px; color: #6b7280; margin-top: 2px; }
+        
+        .total-progress { margin-top: 15px; padding: 12px; background: #f8fafc; border-radius: 6px; display: none; }
+        .total-progress.active { display: block; }
+        .progress-bar { height: 6px; background: #e5e7eb; border-radius: 3px; overflow: hidden; margin-top: 8px; }
+        .progress-fill { height: 100%; background: #2563eb; transition: width 0.3s; }
+        .progress-text { font-size: 12px; color: #374151; display: flex; justify-content: space-between; }
+        
         .search-box { margin-bottom: 15px; }
         .search-input { width: 100%; padding: 12px; border: 1px solid #d1d5db; border-radius: 6px; font-size: 14px; }
         .search-input:focus { outline: none; border-color: #2563eb; }
@@ -52,6 +65,17 @@
             <div class="panel">
                 <h2>Документы</h2>
                 <button class="btn" id="refreshBtn" onclick="refresh()">Обновить</button>
+                
+                <div class="total-progress" id="totalProgress">
+                    <div class="progress-text">
+                        <span id="progressLabel">Обработка...</span>
+                        <span id="progressEta"></span>
+                    </div>
+                    <div class="progress-bar">
+                        <div class="progress-fill" id="progressFill" style="width: 0%"></div>
+                    </div>
+                </div>
+                
                 <ul class="file-list" id="fileList">
                     <li class="empty">Загрузка...</li>
                 </ul>
@@ -79,41 +103,141 @@
 
     <script>
         let currentResults = [];
+        let filesData = {};
         
-        async function loadFiles() {
-            const res = await fetch('/api/files');
-            const files = await res.json();
+        function formatTime(seconds) {
+            if (seconds < 1) return '<1с';
+            if (seconds < 60) return Math.round(seconds) + 'с';
+            const mins = Math.floor(seconds / 60);
+            const secs = Math.round(seconds % 60);
+            return mins + 'м ' + secs + 'с';
+        }
+        
+        function renderFiles() {
             const list = document.getElementById('fileList');
+            const files = Object.values(filesData);
             
             if (files.length === 0) {
                 list.innerHTML = '<li class="empty">Папка FILES пуста</li>';
                 return;
             }
             
-            list.innerHTML = files.map(f => `
-                <li class="file-item">
-                    <span class="status-icon status-${f.icon}" title="${f.message}">
-                        ${f.icon === 'green' ? '✓' : f.icon === 'yellow' ? '!' : '✗'}
-                    </span>
-                    <span class="file-name" title="${f.filename}">${f.filename}</span>
-                </li>
-            `).join('');
+            list.innerHTML = files.map(f => {
+                let badge = '';
+                if (f.processing) {
+                    badge = `<span class="status-badge status-processing">${f.progress || 0}%</span>`;
+                } else if (f.icon === 'green') {
+                    badge = '<span class="status-badge status-green">✓</span>';
+                } else if (f.icon === 'yellow') {
+                    badge = '<span class="status-badge status-yellow">!</span>';
+                } else if (f.icon === 'red') {
+                    badge = '<span class="status-badge status-red">✗</span>';
+                } else {
+                    badge = '<span class="status-badge status-pending">—</span>';
+                }
+                
+                let eta = '';
+                if (f.processing && f.eta_file > 0) {
+                    eta = `<div class="file-eta">≈ ${formatTime(f.eta_file)}</div>`;
+                }
+                
+                return `
+                    <li class="file-item" data-file="${f.filename}">
+                        ${badge}
+                        <div class="file-info">
+                            <div class="file-name" title="${f.filename}">${f.filename}</div>
+                            ${eta}
+                        </div>
+                    </li>
+                `;
+            }).join('');
+        }
+        
+        async function loadFiles() {
+            const res = await fetch('/api/files');
+            const files = await res.json();
+            filesData = {};
+            files.forEach(f => filesData[f.filename] = f);
+            renderFiles();
         }
         
         async function refresh() {
             const btn = document.getElementById('refreshBtn');
+            const totalProgress = document.getElementById('totalProgress');
+            const progressFill = document.getElementById('progressFill');
+            const progressLabel = document.getElementById('progressLabel');
+            const progressEta = document.getElementById('progressEta');
+            
             btn.disabled = true;
             btn.textContent = 'Обработка...';
             
-            try {
-                await fetch('/api/refresh', { method: 'POST' });
-                await loadFiles();
-            } catch (e) {
-                alert('Ошибка: ' + e.message);
-            }
+            const eventSource = new EventSource('/api/refresh');
             
-            btn.disabled = false;
-            btn.textContent = 'Обновить';
+            eventSource.onmessage = (event) => {
+                const data = JSON.parse(event.data);
+                
+                switch (data.type) {
+                    case 'init':
+                        filesData = {};
+                        data.files.forEach(f => filesData[f.filename] = f);
+                        renderFiles();
+                        
+                        const pending = data.files.filter(f => f.status === 'pending').length;
+                        if (pending > 0) {
+                            totalProgress.classList.add('active');
+                            progressLabel.textContent = `Обработка: 0/${pending}`;
+                            progressFill.style.width = '0%';
+                        }
+                        break;
+                    
+                    case 'start':
+                        if (filesData[data.filename]) {
+                            filesData[data.filename].processing = true;
+                            filesData[data.filename].progress = 0;
+                        }
+                        renderFiles();
+                        break;
+                    
+                    case 'progress':
+                        if (filesData[data.filename]) {
+                            filesData[data.filename].progress = data.progress;
+                            filesData[data.filename].eta_file = data.eta_file;
+                        }
+                        
+                        const overallProgress = ((data.file_index + data.progress / 100) / data.total_files) * 100;
+                        progressFill.style.width = overallProgress + '%';
+                        progressLabel.textContent = `Обработка: ${data.file_index + 1}/${data.total_files}`;
+                        progressEta.textContent = `≈ ${formatTime(data.eta_total)}`;
+                        
+                        renderFiles();
+                        break;
+                    
+                    case 'complete':
+                        if (filesData[data.filename]) {
+                            filesData[data.filename].processing = false;
+                            filesData[data.filename].icon = data.icon;
+                            filesData[data.filename].progress = null;
+                            filesData[data.filename].eta_file = null;
+                        }
+                        renderFiles();
+                        break;
+                    
+                    case 'done':
+                        eventSource.close();
+                        btn.disabled = false;
+                        btn.textContent = 'Обновить';
+                        totalProgress.classList.remove('active');
+                        loadFiles();
+                        break;
+                }
+            };
+            
+            eventSource.onerror = () => {
+                eventSource.close();
+                btn.disabled = false;
+                btn.textContent = 'Обновить';
+                totalProgress.classList.remove('active');
+            };
         }
         
         async function search() {
@@ -158,7 +282,6 @@
                 el.classList.toggle('active', i === index);
             });
             
-            // Подсветить фрагмент в тексте
             const escapedFragment = escapeRegExp(r.fragment);
             const highlighted = r.full_text.replace(
                 new RegExp(`(${escapedFragment})`, 'gi'),
@@ -167,7 +290,6 @@
             
             preview.innerHTML = highlighted;
             
-            // Прокрутить к подсвеченному фрагменту
             setTimeout(() => {
                 const hl = preview.querySelector('.highlight');
                 if (hl) hl.scrollIntoView({ behavior: 'smooth', block: 'center' });
