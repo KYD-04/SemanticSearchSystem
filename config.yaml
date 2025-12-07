@@ -1,0 +1,24 @@
+# Конфигурация системы семантического поиска
+
+# Путь к папке с документами
+files_folder: "./FILES"
+
+# Путь к папке для хранения хешей и эмбеддингов
+hash_folder: "./.hash"
+
+# Тип фрагментации: "words", "sentences", "paragraphs"
+fragment_type: "sentences"
+
+# Модель эмбеддинга (sentence-transformers)
+embedding_model: "all-MiniLM-L6-v2"
+
+# Маппинг форматов файлов на методы OpenFile
+file_handlers:
+  pdf: "open_pdf"
+  docx: "open_docx"
+  txt: "open_txt"
+  md: "open_md"
+  html: "open_html"
+
+# Порт сервера
+port: 8080

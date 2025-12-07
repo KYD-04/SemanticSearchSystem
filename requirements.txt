@@ -1,0 +1,7 @@
+flask>=2.0.0
+pyyaml>=6.0
+sentence-transformers>=2.2.0
+numpy>=1.21.0
+beautifulsoup4>=4.9.0
+pypdf>=3.0.0
+python-docx>=0.8.0

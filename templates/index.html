@@ -1,0 +1,190 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Семантический поиск</title>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #f5f5f5; min-height: 100vh; }
+        .container { max-width: 1400px; margin: 0 auto; padding: 20px; }
+        header { background: #2563eb; color: white; padding: 20px; margin-bottom: 20px; border-radius: 8px; }
+        header h1 { font-size: 24px; }
+        .main-grid { display: grid; grid-template-columns: 300px 1fr 400px; gap: 20px; }
+        .panel { background: white; border-radius: 8px; padding: 20px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
+        .panel h2 { font-size: 16px; margin-bottom: 15px; color: #374151; border-bottom: 1px solid #e5e7eb; padding-bottom: 10px; }
+        .btn { background: #2563eb; color: white; border: none; padding: 10px 20px; border-radius: 6px; cursor: pointer; font-size: 14px; width: 100%; }
+        .btn:hover { background: #1d4ed8; }
+        .btn:disabled { background: #9ca3af; cursor: not-allowed; }
+        .file-list { list-style: none; max-height: 300px; overflow-y: auto; }
+        .file-item { display: flex; align-items: center; gap: 10px; padding: 8px; border-bottom: 1px solid #f3f4f6; font-size: 14px; }
+        .file-item:last-child { border-bottom: none; }
+        .status-icon { width: 20px; height: 20px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 12px; flex-shrink: 0; }
+        .status-green { background: #10b981; color: white; }
+        .status-yellow { background: #f59e0b; color: white; }
+        .status-red { background: #ef4444; color: white; }
+        .file-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .search-box { margin-bottom: 15px; }
+        .search-input { width: 100%; padding: 12px; border: 1px solid #d1d5db; border-radius: 6px; font-size: 14px; }
+        .search-input:focus { outline: none; border-color: #2563eb; }
+        .results-list { max-height: 500px; overflow-y: auto; }
+        .result-item { padding: 12px; border: 1px solid #e5e7eb; border-radius: 6px; margin-bottom: 10px; cursor: pointer; transition: all 0.2s; }
+        .result-item:hover { border-color: #2563eb; background: #f8fafc; }
+        .result-item.active { border-color: #2563eb; background: #eff6ff; }
+        .result-header { display: flex; justify-content: space-between; margin-bottom: 5px; }
+        .result-file { font-weight: 600; font-size: 13px; color: #1f2937; }
+        .result-score { font-size: 12px; color: #6b7280; background: #f3f4f6; padding: 2px 8px; border-radius: 4px; }
+        .result-fragment { font-size: 13px; color: #4b5563; line-height: 1.5; }
+        .preview-content { white-space: pre-wrap; font-size: 13px; line-height: 1.6; max-height: 600px; overflow-y: auto; color: #374151; }
+        .highlight { background: #fef08a; padding: 2px 0; }
+        .loading { text-align: center; padding: 20px; color: #6b7280; }
+        .empty { text-align: center; padding: 40px; color: #9ca3af; font-size: 14px; }
+        @media (max-width: 1200px) { .main-grid { grid-template-columns: 1fr; } }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>Система семантического поиска</h1>
+        </header>
+        
+        <div class="main-grid">
+            <div class="panel">
+                <h2>Документы</h2>
+                <button class="btn" id="refreshBtn" onclick="refresh()">Обновить</button>
+                <ul class="file-list" id="fileList">
+                    <li class="empty">Загрузка...</li>
+                </ul>
+            </div>
+            
+            <div class="panel">
+                <h2>Поиск</h2>
+                <div class="search-box">
+                    <input type="text" class="search-input" id="searchInput" placeholder="Введите поисковый запрос..." onkeypress="if(event.key==='Enter')search()">
+                </div>
+                <button class="btn" onclick="search()" style="margin-bottom: 15px;">Найти</button>
+                <div class="results-list" id="resultsList">
+                    <div class="empty">Введите запрос для поиска</div>
+                </div>
+            </div>
+            
+            <div class="panel">
+                <h2>Предпросмотр</h2>
+                <div class="preview-content" id="previewContent">
+                    <div class="empty">Выберите результат для просмотра</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let currentResults = [];
+        
+        async function loadFiles() {
+            const res = await fetch('/api/files');
+            const files = await res.json();
+            const list = document.getElementById('fileList');
+            
+            if (files.length === 0) {
+                list.innerHTML = '<li class="empty">Папка FILES пуста</li>';
+                return;
+            }
+            
+            list.innerHTML = files.map(f => `
+                <li class="file-item">
+                    <span class="status-icon status-${f.icon}" title="${f.message}">
+                        ${f.icon === 'green' ? '✓' : f.icon === 'yellow' ? '!' : '✗'}
+                    </span>
+                    <span class="file-name" title="${f.filename}">${f.filename}</span>
+                </li>
+            `).join('');
+        }
+        
+        async function refresh() {
+            const btn = document.getElementById('refreshBtn');
+            btn.disabled = true;
+            btn.textContent = 'Обработка...';
+            
+            try {
+                await fetch('/api/refresh', { method: 'POST' });
+                await loadFiles();
+            } catch (e) {
+                alert('Ошибка: ' + e.message);
+            }
+            
+            btn.disabled = false;
+            btn.textContent = 'Обновить';
+        }
+        
+        async function search() {
+            const query = document.getElementById('searchInput').value.trim();
+            if (!query) return;
+            
+            const list = document.getElementById('resultsList');
+            list.innerHTML = '<div class="loading">Поиск...</div>';
+            
+            try {
+                const res = await fetch('/api/search', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ query })
+                });
+                currentResults = await res.json();
+                
+                if (currentResults.length === 0) {
+                    list.innerHTML = '<div class="empty">Ничего не найдено</div>';
+                    return;
+                }
+                
+                list.innerHTML = currentResults.map((r, i) => `
+                    <div class="result-item" onclick="showPreview(${i})">
+                        <div class="result-header">
+                            <span class="result-file">${r.filename}</span>
+                            <span class="result-score">${(r.similarity * 100).toFixed(1)}%</span>
+                        </div>
+                        <div class="result-fragment">${escapeHtml(r.fragment.substring(0, 150))}${r.fragment.length > 150 ? '...' : ''}</div>
+                    </div>
+                `).join('');
+            } catch (e) {
+                list.innerHTML = '<div class="empty">Ошибка поиска</div>';
+            }
+        }
+        
+        function showPreview(index) {
+            const r = currentResults[index];
+            const preview = document.getElementById('previewContent');
+            
+            document.querySelectorAll('.result-item').forEach((el, i) => {
+                el.classList.toggle('active', i === index);
+            });
+            
+            // Подсветить фрагмент в тексте
+            const escapedFragment = escapeRegExp(r.fragment);
+            const highlighted = r.full_text.replace(
+                new RegExp(`(${escapedFragment})`, 'gi'),
+                '<span class="highlight">$1</span>'
+            );
+            
+            preview.innerHTML = highlighted;
+            
+            // Прокрутить к подсвеченному фрагменту
+            setTimeout(() => {
+                const hl = preview.querySelector('.highlight');
+                if (hl) hl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            }, 100);
+        }
+        
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+        
+        function escapeRegExp(string) {
+            return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        }
+        
+        loadFiles();
+    </script>
+</body>
+</html>
