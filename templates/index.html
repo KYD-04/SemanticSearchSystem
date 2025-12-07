@@ -40,13 +40,23 @@
         .search-box { margin-bottom: 15px; }
         .search-input { width: 100%; padding: 12px; border: 1px solid #d1d5db; border-radius: 6px; font-size: 14px; }
         .search-input:focus { outline: none; border-color: #2563eb; }
-        .results-list { max-height: 500px; overflow-y: auto; }
+        
+        .metrics-section { margin-bottom: 15px; padding: 12px; background: #f8fafc; border-radius: 6px; }
+        .metrics-section label { font-size: 13px; color: #374151; font-weight: 500; display: block; margin-bottom: 8px; }
+        .metrics-checkboxes { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 10px; }
+        .metric-checkbox { display: flex; align-items: center; gap: 4px; font-size: 12px; color: #4b5563; }
+        .metric-checkbox input { cursor: pointer; }
+        .sort-select { width: 100%; padding: 8px; border: 1px solid #d1d5db; border-radius: 4px; font-size: 13px; }
+        
+        .results-list { max-height: 450px; overflow-y: auto; }
         .result-item { padding: 12px; border: 1px solid #e5e7eb; border-radius: 6px; margin-bottom: 10px; cursor: pointer; transition: all 0.2s; }
         .result-item:hover { border-color: #2563eb; background: #f8fafc; }
         .result-item.active { border-color: #2563eb; background: #eff6ff; }
-        .result-header { display: flex; justify-content: space-between; margin-bottom: 5px; }
+        .result-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 5px; gap: 8px; }
         .result-file { font-weight: 600; font-size: 13px; color: #1f2937; }
-        .result-score { font-size: 12px; color: #6b7280; background: #f3f4f6; padding: 2px 8px; border-radius: 4px; }
+        .result-scores { display: flex; flex-wrap: wrap; gap: 4px; }
+        .result-score { font-size: 11px; color: #6b7280; background: #f3f4f6; padding: 2px 6px; border-radius: 4px; }
+        .result-score.primary { background: #dbeafe; color: #1d4ed8; font-weight: 600; }
         .result-fragment { font-size: 13px; color: #4b5563; line-height: 1.5; }
         .preview-content { white-space: pre-wrap; font-size: 13px; line-height: 1.6; max-height: 600px; overflow-y: auto; color: #374151; }
         .highlight { background: #fef08a; padding: 2px 0; }
@@ -86,6 +96,14 @@
                 <div class="search-box">
                     <input type="text" class="search-input" id="searchInput" placeholder="Введите поисковый запрос..." onkeypress="if(event.key==='Enter')search()">
                 </div>
+                
+                <div class="metrics-section">
+                    <label>Метрики релевантности:</label>
+                    <div class="metrics-checkboxes" id="metricsCheckboxes"></div>
+                    <label>Сортировать по:</label>
+                    <select class="sort-select" id="sortSelect"></select>
+                </div>
+                
                 <button class="btn" onclick="search()" style="margin-bottom: 15px;">Найти</button>
                 <div class="results-list" id="resultsList">
                     <div class="empty">Введите запрос для поиска</div>
@@ -104,6 +122,14 @@
     <script>
         let currentResults = [];
         let filesData = {};
+        let availableMetrics = [];
+        let sortByMetric = 'metric_cosine';
+        
+        const metricLabels = {
+            'metric_cosine': 'Косинусное расстояние',
+            'metric_word_match': 'Совпадение слов',
+            'metric_euclidean': 'Евклидово расстояние'
+        };
         
         function formatTime(seconds) {
             if (seconds < 1) return '<1с';
@@ -111,6 +137,41 @@
             const mins = Math.floor(seconds / 60);
             const secs = Math.round(seconds % 60);
             return mins + 'м ' + secs + 'с';
+        }
+        
+        async function loadMetrics() {
+            const res = await fetch('/api/metrics');
+            availableMetrics = await res.json();
+            
+            const checkboxes = document.getElementById('metricsCheckboxes');
+            const sortSelect = document.getElementById('sortSelect');
+            
+            checkboxes.innerHTML = availableMetrics.map(m => `
+                <label class="metric-checkbox">
+                    <input type="checkbox" value="${m.name}" ${m.name === 'metric_cosine' ? 'checked' : ''}>
+                    ${metricLabels[m.name] || m.display_name}
+                </label>
+            `).join('');
+            
+            sortSelect.innerHTML = availableMetrics.map(m => `
+                <option value="${m.name}" ${m.name === 'metric_cosine' ? 'selected' : ''}>
+                    ${metricLabels[m.name] || m.display_name}
+                </option>
+            `).join('');
+            
+            sortSelect.addEventListener('change', () => {
+                sortByMetric = sortSelect.value;
+                // Проверить, что метрика выбрана
+                const checkbox = document.querySelector(`input[value="${sortByMetric}"]`);
+                if (checkbox && !checkbox.checked) {
+                    checkbox.checked = true;
+                }
+            });
+        }
+        
+        function getSelectedMetrics() {
+            const checked = document.querySelectorAll('#metricsCheckboxes input:checked');
+            return Array.from(checked).map(c => c.value);
         }
         
         function renderFiles() {
@@ -244,6 +305,14 @@
             const query = document.getElementById('searchInput').value.trim();
             if (!query) return;
             
+            const selectedMetrics = getSelectedMetrics();
+            if (selectedMetrics.length === 0) {
+                alert('Выберите хотя бы одну метрику');
+                return;
+            }
+            
+            sortByMetric = document.getElementById('sortSelect').value;
+            
             const list = document.getElementById('resultsList');
             list.innerHTML = '<div class="loading">Поиск...</div>';
             
@@ -251,7 +320,11 @@
                 const res = await fetch('/api/search', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ query })
+                    body: JSON.stringify({ 
+                        query,
+                        metrics: selectedMetrics,
+                        sort_by: sortByMetric
+                    })
                 });
                 currentResults = await res.json();
                 
@@ -260,15 +333,23 @@
                     return;
                 }
                 
-                list.innerHTML = currentResults.map((r, i) => `
-                    <div class="result-item" onclick="showPreview(${i})">
-                        <div class="result-header">
-                            <span class="result-file">${r.filename}</span>
-                            <span class="result-score">${(r.similarity * 100).toFixed(1)}%</span>
+                list.innerHTML = currentResults.map((r, i) => {
+                    const scoresHtml = Object.entries(r.scores).map(([name, val]) => {
+                        const isPrimary = name === sortByMetric;
+                        const label = metricLabels[name] || name.replace('metric_', '');
+                        return `<span class="result-score ${isPrimary ? 'primary' : ''}" title="${label}">${(val * 100).toFixed(1)}%</span>`;
+                    }).join('');
+                    
+                    return `
+                        <div class="result-item" onclick="showPreview(${i})">
+                            <div class="result-header">
+                                <span class="result-file">${r.filename}</span>
+                                <div class="result-scores">${scoresHtml}</div>
+                            </div>
+                            <div class="result-fragment">${escapeHtml(r.fragment.substring(0, 150))}${r.fragment.length > 150 ? '...' : ''}</div>
                         </div>
-                        <div class="result-fragment">${escapeHtml(r.fragment.substring(0, 150))}${r.fragment.length > 150 ? '...' : ''}</div>
-                    </div>
-                `).join('');
+                    `;
+                }).join('');
             } catch (e) {
                 list.innerHTML = '<div class="empty">Ошибка поиска</div>';
             }
@@ -306,6 +387,7 @@
             return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
         }
         
+        loadMetrics();
         loadFiles();
     </script>
 </body>

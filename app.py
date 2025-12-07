@@ -11,6 +11,7 @@ from flask import Flask, render_template, request, jsonify, Response
 from open_file import OpenFile
 from embeddings import EmbeddingManager
 from storage import Storage
+from metrics import RelevanceMetric
 
 app = Flask(__name__)
 
@@ -58,6 +59,12 @@ def index():
     return render_template('index.html')
 
 
+@app.route('/api/metrics')
+def get_metrics():
+    """Получить список доступных метрик."""
+    return jsonify(RelevanceMetric.get_all_metrics())
+
+
 @app.route('/api/files')
 def get_files():
     """Получить список файлов с их статусами."""
@@ -88,7 +95,6 @@ def refresh_stream():
         os.makedirs(files_folder, exist_ok=True)
         storage.clear_missing_files()
         
-        # Собрать все файлы
         all_files = []
         for filename in os.listdir(files_folder):
             filepath = os.path.join(files_folder, filename)
@@ -101,10 +107,8 @@ def refresh_stream():
                     **status
                 })
         
-        # Отправить начальный список файлов
         yield f"data: {json.dumps({'type': 'init', 'files': all_files})}\n\n"
         
-        # Найти файлы для обработки
         to_process = [f for f in all_files if f['status'] == 'pending']
         total = len(to_process)
         
@@ -112,7 +116,6 @@ def refresh_stream():
             yield f"data: {json.dumps({'type': 'done'})}\n\n"
             return
         
-        # Оценка времени на основе размера файлов
         total_size = sum(f['size'] for f in to_process)
         processed_size = 0
         start_time = time.time()
@@ -122,7 +125,6 @@ def refresh_stream():
             filepath = file_info['filepath']
             file_size = file_info['size']
             
-            # Отправить начало обработки
             yield f"data: {json.dumps({'type': 'start', 'filename': filename, 'index': i, 'total': total})}\n\n"
             
             ext = os.path.splitext(filepath)[1].lower().lstrip('.')
@@ -136,14 +138,12 @@ def refresh_stream():
                 result.update({"success": False, "icon": "red"})
             else:
                 try:
-                    # Извлечь текст
                     text = method(filepath)
                     fragments = embedding_manager.fragment_text(text, config['fragment_type'])
                     
                     if not fragments:
                         result.update({"success": False, "icon": "yellow"})
                     else:
-                        # Обработка фрагментов с прогрессом
                         total_frags = len(fragments)
                         batch_size = max(1, total_frags // 10)
                         
@@ -153,10 +153,7 @@ def refresh_stream():
                             embs = embedding_manager.get_embeddings(batch)
                             all_embeddings.append(embs)
                             
-                            # Прогресс внутри файла
                             file_progress = min(100, int((j + len(batch)) / total_frags * 100))
-                            
-                            # Общий прогресс
                             elapsed = time.time() - start_time
                             current_processed = processed_size + (file_size * file_progress / 100)
                             if current_processed > 0:
@@ -198,15 +195,21 @@ def refresh_stream():
 
 @app.route('/api/search', methods=['POST'])
 def search():
-    """Выполнить поиск."""
+    """Выполнить поиск с выбранными метриками."""
     data = request.json
     query = data.get('query', '').strip()
+    selected_metrics = data.get('metrics', ['metric_cosine'])
+    sort_by = data.get('sort_by', 'metric_cosine')
     
     if not query:
         return jsonify({"error": "Пустой запрос"}), 400
     
+    # Получить эмбеддинг запроса для метрик с embed=True
     query_embedding = embedding_manager.get_embedding(query)
     documents = storage.get_all_documents(config['embedding_model'])
+    
+    # Получить информацию о метриках
+    all_metrics_info = {m['name']: m for m in RelevanceMetric.get_all_metrics()}
     
     results = []
     for doc in documents:
@@ -214,17 +217,34 @@ def search():
         embeddings = doc['embeddings']
         
         for i, (fragment, emb) in enumerate(zip(fragments, embeddings)):
-            similarity = embedding_manager.cosine_similarity(query_embedding, emb)
+            # Вычислить все выбранные метрики
+            scores = {}
+            for metric_name in selected_metrics:
+                metric_method = RelevanceMetric.get_method(metric_name)
+                if metric_method:
+                    metric_info = all_metrics_info.get(metric_name, {})
+                    uses_embed = metric_info.get('embed', True)
+                    
+                    try:
+                        if uses_embed:
+                            score = metric_method(query_embedding, emb, embed=True)
+                        else:
+                            score = metric_method(query, fragment, embed=False)
+                        scores[metric_name] = round(float(score), 4)
+                    except:
+                        scores[metric_name] = 0.0
+            
             results.append({
                 "filename": doc['filename'],
                 "filepath": doc['filepath'],
                 "fragment": fragment,
                 "fragment_index": i,
-                "similarity": round(similarity, 4),
+                "scores": scores,
                 "full_text": doc['full_text']
             })
     
-    results.sort(key=lambda x: x['similarity'], reverse=True)
+    # Сортировка по выбранной метрике
+    results.sort(key=lambda x: x['scores'].get(sort_by, 0), reverse=True)
     return jsonify(results[:50])
 
 
