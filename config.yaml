@@ -1,16 +1,16 @@
 # Конфигурация системы семантического поиска
 
 # Путь к папке с документами
-files_folder: "./FILES"
+files_folder: "L:/WORK/PROJECTS/GitHub/SemanticSearchSystem/FILES"
 
 # Путь к папке для хранения хешей и эмбеддингов
-hash_folder: "./.hash"
+hash_folder: "L:/WORK/PROJECTS/GitHub/SemanticSearchSystem/FILES/.hash"
 
 # Тип фрагментации: "words", "sentences", "paragraphs"
-fragment_type: "sentences"
+fragment_type: "paragraphs"
 
 # Модель эмбеддинга (sentence-transformers)
-embedding_model: "all-MiniLM-L6-v2"
+embedding_model: "deepvk/USER-base"
 
 # Маппинг форматов файлов на методы OpenFile
 file_handlers:

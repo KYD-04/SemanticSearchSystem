@@ -23,7 +23,7 @@ def load_config():
 
 config = load_config()
 storage = Storage(config['hash_folder'])
-embedding_manager = EmbeddingManager(config['embedding_model'])
+embedding_manager = EmbeddingManager(config['embedding_model'], device="cuda")
 
 
 def get_file_status(filepath: str) -> dict:
@@ -40,7 +40,7 @@ def get_file_status(filepath: str) -> dict:
     if method is None:
         return {"status": "no_method", "icon": "red", "message": f"Метод {method_name} не найден"}
     
-    if storage.is_indexed(filepath, config['embedding_model']):
+    if storage.is_indexed(filepath, config['embedding_model'], config.get('fragment_type')):
         return {"status": "indexed", "icon": "green", "message": "Проиндексирован"}
     
     return {"status": "pending", "icon": "yellow", "message": "Ожидает индексации"}
@@ -63,6 +63,13 @@ def index():
 def get_metrics():
     """Получить список доступных метрик."""
     return jsonify(RelevanceMetric.get_all_metrics())
+
+
+@app.route('/api/clear_index', methods=['POST'])
+def clear_index():
+    """Очистить весь индекс и переиндексировать документы."""
+    storage.clear_all()
+    return jsonify({"success": True, "message": "Индекс очищен. Переиндексируйте документы."})
 
 
 @app.route('/api/files')
@@ -139,20 +146,21 @@ def refresh_stream():
             else:
                 try:
                     text = method(filepath)
-                    fragments = embedding_manager.fragment_text(text, config['fragment_type'])
+                    fragment_type = config.get('fragment_type')
+                    fragments = embedding_manager.fragment_text(text, fragment_type)
                     
                     if not fragments:
                         result.update({"success": False, "icon": "yellow"})
                     else:
                         total_frags = len(fragments)
                         batch_size = max(1, total_frags // 10)
-                        
+
                         all_embeddings = []
                         for j in range(0, total_frags, batch_size):
                             batch = fragments[j:j+batch_size]
                             embs = embedding_manager.get_embeddings(batch)
                             all_embeddings.append(embs)
-                            
+
                             file_progress = min(100, int((j + len(batch)) / total_frags * 100))
                             elapsed = time.time() - start_time
                             current_processed = processed_size + (file_size * file_progress / 100)
@@ -164,21 +172,22 @@ def refresh_stream():
                             else:
                                 eta_total = 0
                                 eta_file = 0
-                            
+
                             yield f"data: {json.dumps({'type': 'progress', 'filename': filename, 'progress': file_progress, 'eta_file': round(eta_file, 1), 'eta_total': round(eta_total, 1), 'file_index': i, 'total_files': total})}\n\n"
-                        
+
                         import numpy as np
                         embeddings = np.vstack(all_embeddings)
                         
                         storage.save_document(
                             filepath=filepath,
                             model_name=config['embedding_model'],
+                            fragment_type=fragment_type,
                             fragments=fragments,
                             embeddings=embeddings,
                             full_text=text
                         )
                         result.update({"success": True, "icon": "green"})
-                
+
                 except Exception as e:
                     result.update({"success": False, "icon": "yellow", "error": str(e)})
             
@@ -206,7 +215,7 @@ def search():
     
     # Получить эмбеддинг запроса для метрик с embed=True
     query_embedding = embedding_manager.get_embedding(query)
-    documents = storage.get_all_documents(config['embedding_model'])
+    documents = storage.get_all_documents(config['embedding_model'], config.get('fragment_type'))
     
     # Получить информацию о метриках
     all_metrics_info = {m['name']: m for m in RelevanceMetric.get_all_metrics()}
@@ -266,7 +275,7 @@ def refine_search():
     
     # Получить исходный эмбеддинг запроса
     query_embedding = embedding_manager.get_embedding(query)
-    documents = storage.get_all_documents(config['embedding_model'])
+    documents = storage.get_all_documents(config['embedding_model'], config.get('fragment_type'))
     
     # Построить индекс документов для быстрого доступа
     doc_index = {doc['filepath']: doc for doc in documents}
@@ -341,7 +350,7 @@ def refine_search():
 @app.route('/api/document/<path:filepath>')
 def get_document(filepath):
     """Получить документ для предпросмотра."""
-    documents = storage.get_all_documents(config['embedding_model'])
+    documents = storage.get_all_documents(config['embedding_model'], config.get('fragment_type'))
     
     for doc in documents:
         if doc['filepath'] == filepath:

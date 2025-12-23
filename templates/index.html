@@ -4,92 +4,581 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Семантический поиск</title>
+    <link href="https://fonts.googleapis.com/css2?family=Google+Sans:wght@400;500;600&family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@24,400,0,0" rel="stylesheet">
     <style>
+        :root {
+            --bg-primary: #1b1b1f;
+            --bg-secondary: #27272a;
+            --bg-tertiary: #313136;
+            --bg-hover: #3f3f46;
+            --text-primary: #e4e4e7;
+            --text-secondary: #a1a1aa;
+            --text-muted: #71717a;
+            --accent: #8b5cf6;
+            --accent-hover: #7c3aed;
+            --success: #22c55e;
+            --warning: #f59e0b;
+            --error: #ef4444;
+            --border: #3f3f46;
+            --panel-radius: 16px;
+        }
+        
         * { box-sizing: border-box; margin: 0; padding: 0; }
-        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #f5f5f5; min-height: 100vh; }
-        .container { max-width: 1400px; margin: 0 auto; padding: 20px; }
-        header { background: #2563eb; color: white; padding: 20px; margin-bottom: 20px; border-radius: 8px; }
-        header h1 { font-size: 24px; }
-        .main-grid { display: grid; grid-template-columns: 350px 1fr 400px; gap: 20px; }
-        .panel { background: white; border-radius: 8px; padding: 20px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
-        .panel h2 { font-size: 16px; margin-bottom: 15px; color: #374151; border-bottom: 1px solid #e5e7eb; padding-bottom: 10px; }
-        .btn { background: #2563eb; color: white; border: none; padding: 10px 20px; border-radius: 6px; cursor: pointer; font-size: 14px; width: 100%; }
-        .btn:hover { background: #1d4ed8; }
-        .btn:disabled { background: #9ca3af; cursor: not-allowed; }
-        .file-list { list-style: none; max-height: 400px; overflow-y: auto; margin-top: 15px; }
-        .file-item { display: flex; align-items: center; gap: 10px; padding: 10px; border-bottom: 1px solid #f3f4f6; font-size: 14px; }
-        .file-item:last-child { border-bottom: none; }
         
-        .status-badge { min-width: 40px; height: 24px; border-radius: 12px; display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 600; flex-shrink: 0; }
-        .status-green { background: #10b981; color: white; }
-        .status-yellow { background: #f59e0b; color: white; }
-        .status-red { background: #ef4444; color: white; }
-        .status-processing { background: #3b82f6; color: white; min-width: 50px; }
-        .status-pending { background: #e5e7eb; color: #6b7280; }
+        body {
+            font-family: 'Google Sans', -apple-system, BlinkMacSystemFont, sans-serif;
+            background: var(--bg-primary);
+            color: var(--text-primary);
+            min-height: 100vh;
+            overflow: hidden;
+        }
         
-        .file-info { flex: 1; min-width: 0; }
-        .file-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 500; }
-        .file-eta { font-size: 11px; color: #6b7280; margin-top: 2px; }
+        .app-container {
+            display: flex;
+            flex-direction: column;
+            height: 100vh;
+        }
         
-        .total-progress { margin-top: 15px; padding: 12px; background: #f8fafc; border-radius: 6px; display: none; }
-        .total-progress.active { display: block; }
-        .progress-bar { height: 6px; background: #e5e7eb; border-radius: 3px; overflow: hidden; margin-top: 8px; }
-        .progress-fill { height: 100%; background: #2563eb; transition: width 0.3s; }
-        .progress-text { font-size: 12px; color: #374151; display: flex; justify-content: space-between; }
+        /* Header */
+        .header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 12px 24px;
+            background: var(--bg-primary);
+            flex-shrink: 0;
+        }
         
-        .search-box { margin-bottom: 15px; }
-        .search-input { width: 100%; padding: 12px; border: 1px solid #d1d5db; border-radius: 6px; font-size: 14px; }
-        .search-input:focus { outline: none; border-color: #2563eb; }
+        .header-title {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            font-size: 18px;
+            font-weight: 500;
+        }
         
-        .metrics-section { margin-bottom: 15px; padding: 12px; background: #f8fafc; border-radius: 6px; }
-        .metrics-section label { font-size: 13px; color: #374151; font-weight: 500; display: block; margin-bottom: 8px; }
-        .metrics-checkboxes { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 10px; }
-        .metric-checkbox { display: flex; align-items: center; gap: 4px; font-size: 12px; color: #4b5563; }
-        .metric-checkbox input { cursor: pointer; }
-        .sort-select { width: 100%; padding: 8px; border: 1px solid #d1d5db; border-radius: 4px; font-size: 13px; }
+        .header-title .icon {
+            color: var(--accent);
+        }
         
-        .results-list { max-height: 450px; overflow-y: auto; }
-        .result-item { padding: 12px; border: 1px solid #e5e7eb; border-radius: 6px; margin-bottom: 10px; cursor: pointer; transition: all 0.2s; }
-        .result-item:hover { border-color: #2563eb; background: #f8fafc; }
-        .result-item.active { border-color: #2563eb; background: #eff6ff; }
-        .result-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 5px; gap: 8px; }
-        .result-file { font-weight: 600; font-size: 13px; color: #1f2937; }
-        .result-scores { display: flex; flex-wrap: wrap; gap: 4px; }
-        .result-score { font-size: 11px; color: #6b7280; background: #f3f4f6; padding: 2px 6px; border-radius: 4px; }
-        .result-score.primary { background: #dbeafe; color: #1d4ed8; font-weight: 600; }
-        .result-fragment { font-size: 13px; color: #4b5563; line-height: 1.5; }
-        .result-feedback { display: flex; gap: 6px; margin-top: 8px; }
-        .feedback-btn { padding: 4px 12px; border: 1px solid #d1d5db; border-radius: 4px; cursor: pointer; font-size: 12px; background: white; }
-        .feedback-btn:hover { background: #f3f4f6; }
-        .feedback-btn.positive { border-color: #10b981; color: #10b981; }
-        .feedback-btn.positive.active { background: #10b981; color: white; }
-        .feedback-btn.negative { border-color: #ef4444; color: #ef4444; }
-        .feedback-btn.negative.active { background: #ef4444; color: white; }
-        .refine-section { margin-top: 15px; padding: 12px; background: #fef3c7; border-radius: 6px; display: none; }
-        .refine-section.active { display: block; }
-        .refine-btn { background: #f59e0b; }
-        .refine-btn:hover { background: #d97706; }
-        .refine-metrics { margin-top: 8px; font-size: 12px; color: #6b7280; }
-        .refine-metric-cb { display: inline-flex; align-items: center; gap: 3px; margin-right: 10px; }
-        .preview-content { white-space: pre-wrap; font-size: 13px; line-height: 1.6; max-height: 600px; overflow-y: auto; color: #374151; }
-        .highlight { background: #fef08a; padding: 2px 0; }
-        .loading { text-align: center; padding: 20px; color: #6b7280; }
-        .empty { text-align: center; padding: 40px; color: #9ca3af; font-size: 14px; }
-        @media (max-width: 1200px) { .main-grid { grid-template-columns: 1fr; } }
+        .header-actions {
+            display: flex;
+            gap: 8px;
+        }
+        
+        .icon-btn {
+            width: 40px;
+            height: 40px;
+            border: none;
+            border-radius: 50%;
+            background: transparent;
+            color: var(--text-secondary);
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.2s;
+        }
+        
+        .icon-btn:hover {
+            background: var(--bg-hover);
+            color: var(--text-primary);
+        }
+        
+        /* Main Layout */
+        .panel-container {
+            display: flex;
+            flex: 1;
+            padding: 16px;
+            gap: 16px;
+            overflow: hidden;
+        }
+        
+        .panel {
+            background: var(--bg-secondary);
+            border-radius: var(--panel-radius);
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+        
+        .panel-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 16px 20px;
+            border-bottom: 1px solid var(--border);
+            flex-shrink: 0;
+        }
+        
+        .panel-title {
+            font-size: 14px;
+            font-weight: 500;
+            color: var(--text-primary);
+        }
+        
+        .panel-content {
+            flex: 1;
+            overflow-y: auto;
+            padding: 12px;
+        }
+        
+        /* Source Panel (Left) */
+        .source-panel {
+            width: 320px;
+            flex-shrink: 0;
+        }
+        
+        .source-actions {
+            padding: 12px;
+        }
+        
+        .btn-primary {
+            width: 100%;
+            padding: 12px 20px;
+            background: var(--accent);
+            color: white;
+            border: none;
+            border-radius: 24px;
+            font-size: 14px;
+            font-weight: 500;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            transition: all 0.2s;
+        }
+        
+        .btn-primary:hover {
+            background: var(--accent-hover);
+        }
+        
+        .btn-primary:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+        
+        .source-item {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding: 12px 16px;
+            border-radius: 12px;
+            cursor: pointer;
+            transition: all 0.2s;
+            margin-bottom: 4px;
+        }
+        
+        .source-item:hover {
+            background: var(--bg-tertiary);
+        }
+        
+        .source-icon {
+            width: 36px;
+            height: 36px;
+            border-radius: 8px;
+            background: var(--bg-tertiary);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            flex-shrink: 0;
+        }
+        
+        .source-icon.green { background: rgba(34, 197, 94, 0.2); color: var(--success); }
+        .source-icon.yellow { background: rgba(245, 158, 11, 0.2); color: var(--warning); }
+        .source-icon.red { background: rgba(239, 68, 68, 0.2); color: var(--error); }
+        .source-icon.processing { background: rgba(139, 92, 246, 0.2); color: var(--accent); }
+        
+        .source-info {
+            flex: 1;
+            min-width: 0;
+        }
+        
+        .source-name {
+            font-size: 13px;
+            font-weight: 500;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        
+        .source-meta {
+            font-size: 11px;
+            color: var(--text-muted);
+            margin-top: 2px;
+        }
+        
+        .progress-container {
+            padding: 16px;
+            background: var(--bg-tertiary);
+            border-radius: 12px;
+            margin: 12px;
+            display: none;
+        }
+        
+        .progress-container.active { display: block; }
+        
+        .progress-bar {
+            height: 4px;
+            background: var(--bg-hover);
+            border-radius: 2px;
+            overflow: hidden;
+            margin-top: 8px;
+        }
+        
+        .progress-fill {
+            height: 100%;
+            background: var(--accent);
+            transition: width 0.3s;
+            border-radius: 2px;
+        }
+        
+        .progress-text {
+            display: flex;
+            justify-content: space-between;
+            font-size: 12px;
+            color: var(--text-secondary);
+        }
+        
+        /* Chat Panel (Center) */
+        .chat-panel {
+            flex: 1;
+            min-width: 400px;
+        }
+        
+        .search-container {
+            padding: 16px;
+        }
+        
+        .search-box {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            background: var(--bg-tertiary);
+            border-radius: 24px;
+            padding: 8px 16px;
+        }
+        
+        .search-input {
+            flex: 1;
+            background: transparent;
+            border: none;
+            color: var(--text-primary);
+            font-size: 14px;
+            outline: none;
+        }
+        
+        .search-input::placeholder {
+            color: var(--text-muted);
+        }
+        
+        .search-btn {
+            width: 36px;
+            height: 36px;
+            border-radius: 50%;
+            background: var(--accent);
+            border: none;
+            color: white;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        
+        .search-btn:hover {
+            background: var(--accent-hover);
+        }
+        
+        .metrics-bar {
+            display: flex;
+            align-items: center;
+            gap: 16px;
+            padding: 12px 16px;
+            flex-wrap: wrap;
+        }
+        
+        .metrics-group {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        
+        .metrics-label {
+            font-size: 12px;
+            color: var(--text-muted);
+        }
+        
+        .chip {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 6px 12px;
+            background: var(--bg-tertiary);
+            border-radius: 16px;
+            font-size: 12px;
+            cursor: pointer;
+            transition: all 0.2s;
+            border: 1px solid transparent;
+        }
+        
+        .chip:hover {
+            background: var(--bg-hover);
+        }
+        
+        .chip.active {
+            background: rgba(139, 92, 246, 0.2);
+            border-color: var(--accent);
+            color: var(--accent);
+        }
+        
+        .chip input {
+            display: none;
+        }
+        
+        .select-styled {
+            background: var(--bg-tertiary);
+            border: 1px solid var(--border);
+            color: var(--text-primary);
+            padding: 6px 12px;
+            border-radius: 8px;
+            font-size: 12px;
+            cursor: pointer;
+        }
+        
+        .refine-bar {
+            display: none;
+            align-items: center;
+            justify-content: space-between;
+            padding: 12px 16px;
+            background: rgba(245, 158, 11, 0.1);
+            border-bottom: 1px solid rgba(245, 158, 11, 0.2);
+        }
+        
+        .refine-bar.active { display: flex; }
+        
+        .refine-info {
+            font-size: 13px;
+            color: var(--warning);
+        }
+        
+        .btn-refine {
+            padding: 8px 16px;
+            background: var(--warning);
+            color: #1b1b1f;
+            border: none;
+            border-radius: 20px;
+            font-size: 13px;
+            font-weight: 500;
+            cursor: pointer;
+        }
+        
+        .btn-refine:hover {
+            filter: brightness(1.1);
+        }
+        
+        /* Results */
+        .result-item {
+            padding: 16px;
+            background: var(--bg-tertiary);
+            border-radius: 12px;
+            margin-bottom: 12px;
+            transition: all 0.2s;
+            border: 1px solid transparent;
+        }
+        
+        .result-item:hover {
+            border-color: var(--border);
+        }
+        
+        .result-item.active {
+            border-color: var(--accent);
+        }
+        
+        .result-header {
+            display: flex;
+            align-items: flex-start;
+            justify-content: space-between;
+            margin-bottom: 8px;
+        }
+        
+        .result-file {
+            font-size: 13px;
+            font-weight: 500;
+            color: var(--accent);
+        }
+        
+        .result-scores {
+            display: flex;
+            gap: 6px;
+            flex-wrap: wrap;
+        }
+        
+        .score-badge {
+            font-size: 11px;
+            padding: 3px 8px;
+            background: var(--bg-secondary);
+            border-radius: 12px;
+            color: var(--text-muted);
+        }
+        
+        .score-badge.primary {
+            background: rgba(139, 92, 246, 0.2);
+            color: var(--accent);
+        }
+        
+        .result-fragment {
+            font-size: 13px;
+            color: var(--text-secondary);
+            line-height: 1.6;
+            cursor: pointer;
+        }
+        
+        .result-actions {
+            display: flex;
+            gap: 8px;
+            margin-top: 12px;
+        }
+        
+        .feedback-btn {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            padding: 6px 14px;
+            border-radius: 20px;
+            font-size: 12px;
+            cursor: pointer;
+            transition: all 0.2s;
+            border: 1px solid var(--border);
+            background: transparent;
+            color: var(--text-secondary);
+        }
+        
+        .feedback-btn:hover {
+            background: var(--bg-hover);
+        }
+        
+        .feedback-btn.positive.active {
+            background: rgba(34, 197, 94, 0.2);
+            border-color: var(--success);
+            color: var(--success);
+        }
+        
+        .feedback-btn.negative.active {
+            background: rgba(239, 68, 68, 0.2);
+            border-color: var(--error);
+            color: var(--error);
+        }
+        
+        /* Studio Panel (Right) */
+        .studio-panel {
+            width: 380px;
+            flex-shrink: 0;
+        }
+        
+        .preview-content {
+            padding: 20px;
+            font-size: 14px;
+            line-height: 1.8;
+            color: var(--text-secondary);
+            white-space: pre-wrap;
+        }
+        
+        .highlight {
+            background: rgba(245, 158, 11, 0.3);
+            padding: 2px 0;
+            border-radius: 2px;
+        }
+        
+        .empty-state {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 200px;
+            color: var(--text-muted);
+            font-size: 14px;
+        }
+        
+        .empty-state .material-symbols-outlined {
+            font-size: 48px;
+            margin-bottom: 12px;
+            opacity: 0.5;
+        }
+        
+        /* Footer */
+        .footer {
+            padding: 12px 24px;
+            text-align: center;
+            font-size: 12px;
+            color: var(--text-muted);
+        }
+        
+        .footer a {
+            color: var(--accent);
+            text-decoration: none;
+        }
+        
+        /* Scrollbar */
+        ::-webkit-scrollbar {
+            width: 8px;
+        }
+        
+        ::-webkit-scrollbar-track {
+            background: transparent;
+        }
+        
+        ::-webkit-scrollbar-thumb {
+            background: var(--bg-hover);
+            border-radius: 4px;
+        }
+        
+        ::-webkit-scrollbar-thumb:hover {
+            background: var(--text-muted);
+        }
+        
+        /* Responsive */
+        @media (max-width: 1200px) {
+            .studio-panel { display: none; }
+        }
+        
+        @media (max-width: 800px) {
+            .source-panel { display: none; }
+        }
     </style>
 </head>
 <body>
-    <div class="container">
-        <header>
-            <h1>Система семантического поиска</h1>
+    <div class="app-container">
+        <header class="header">
+            <div class="header-title">
+                <span class="material-symbols-outlined icon">search</span>
+                Семантический поиск
+            </div>
+            <div class="header-actions">
+                <button class="icon-btn" title="Настройки">
+                    <span class="material-symbols-outlined">settings</span>
+                </button>
+            </div>
         </header>
         
-        <div class="main-grid">
-            <div class="panel">
-                <h2>Документы</h2>
-                <button class="btn" id="refreshBtn" onclick="refresh()">Обновить</button>
+        <div class="panel-container">
+            <!-- Source Panel -->
+            <section class="panel source-panel">
+                <div class="panel-header">
+                    <h2 class="panel-title">Источники</h2>
+                    <button class="icon-btn" title="Свернуть">
+                        <span class="material-symbols-outlined">dock_to_right</span>
+                    </button>
+                </div>
                 
-                <div class="total-progress" id="totalProgress">
+                <div class="source-actions">
+                    <button class="btn-primary" id="refreshBtn" onclick="refresh()">
+                        <span class="material-symbols-outlined">refresh</span>
+                        Обновить
+                    </button>
+                </div>
+                
+                <div class="progress-container" id="totalProgress">
                     <div class="progress-text">
                         <span id="progressLabel">Обработка...</span>
                         <span id="progressEta"></span>
@@ -99,45 +588,84 @@
                     </div>
                 </div>
                 
-                <ul class="file-list" id="fileList">
-                    <li class="empty">Загрузка...</li>
-                </ul>
-            </div>
+                <div class="panel-content" id="fileList">
+                    <div class="empty-state">
+                        <span class="material-symbols-outlined">folder_open</span>
+                        Загрузка...
+                    </div>
+                </div>
+            </section>
             
-            <div class="panel">
-                <h2>Поиск</h2>
-                <div class="search-box">
-                    <input type="text" class="search-input" id="searchInput" placeholder="Введите поисковый запрос..." onkeypress="if(event.key==='Enter')search()">
+            <!-- Chat Panel -->
+            <section class="panel chat-panel">
+                <div class="panel-header">
+                    <h2 class="panel-title">Поиск</h2>
                 </div>
                 
-                <div class="metrics-section">
-                    <label>Метрики релевантности:</label>
-                    <div class="metrics-checkboxes" id="metricsCheckboxes"></div>
-                    <label>Сортировать по:</label>
-                    <select class="sort-select" id="sortSelect"></select>
-                    <div class="refine-metrics">
-                        <label style="margin-top: 8px;">Учитывать при уточнении:</label>
-                        <div id="refineMetricsCheckboxes" style="margin-top: 4px;"></div>
+                <div class="search-container">
+                    <div class="search-box">
+                        <span class="material-symbols-outlined" style="color: var(--text-muted)">search</span>
+                        <input type="text" class="search-input" id="searchInput" placeholder="Введите поисковый запрос..." onkeypress="if(event.key==='Enter')search()">
+                        <button class="search-btn" onclick="search()">
+                            <span class="material-symbols-outlined">arrow_upward</span>
+                        </button>
                     </div>
                 </div>
                 
-                <button class="btn" onclick="search()" style="margin-bottom: 10px;">Найти</button>
-                <div class="refine-section" id="refineSection">
-                    <button class="btn refine-btn" onclick="refineSearch()">Уточнить результаты</button>
-                    <div style="font-size: 11px; color: #92400e; margin-top: 6px;">Отмечено: <span id="feedbackCount">0</span> результатов</div>
+                <div class="metrics-bar">
+                    <div class="metrics-group">
+                        <span class="metrics-label">Метрики:</span>
+                        <div id="metricsCheckboxes"></div>
+                    </div>
+                    <div class="metrics-group">
+                        <span class="metrics-label">Сортировка:</span>
+                        <select class="select-styled" id="sortSelect"></select>
+                    </div>
                 </div>
-                <div class="results-list" id="resultsList">
-                    <div class="empty">Введите запрос для поиска</div>
+                
+                <div class="metrics-bar" style="border-bottom: none; padding-top: 0;">
+                    <div class="metrics-group">
+                        <span class="metrics-label">Уточнять по:</span>
+                        <div id="refineMetricsCheckboxes"></div>
+                    </div>
                 </div>
-            </div>
+                
+                <div class="refine-bar" id="refineSection">
+                    <span class="refine-info">
+                        <span class="material-symbols-outlined" style="font-size: 16px; vertical-align: middle;">tune</span>
+                        Отмечено: <span id="feedbackCount">0</span> результатов
+                    </span>
+                    <button class="btn-refine" onclick="refineSearch()">Уточнить результаты</button>
+                </div>
+                
+                <div class="panel-content" id="resultsList">
+                    <div class="empty-state">
+                        <span class="material-symbols-outlined">manage_search</span>
+                        Введите запрос для поиска
+                    </div>
+                </div>
+            </section>
             
-            <div class="panel">
-                <h2>Предпросмотр</h2>
-                <div class="preview-content" id="previewContent">
-                    <div class="empty">Выберите результат для просмотра</div>
+            <!-- Studio Panel -->
+            <section class="panel studio-panel">
+                <div class="panel-header">
+                    <h2 class="panel-title">Предпросмотр</h2>
+                    <button class="icon-btn" title="Свернуть">
+                        <span class="material-symbols-outlined">dock_to_left</span>
+                    </button>
                 </div>
-            </div>
+                <div class="panel-content preview-content" id="previewContent">
+                    <div class="empty-state">
+                        <span class="material-symbols-outlined">description</span>
+                        <span>Выберите результат</span>
+                    </div>
+                </div>
+            </section>
         </div>
+        
+        <footer class="footer">
+            Semantic Search System | <a href="https://github.com/KYD-04" target="_blank">GitHub</a>
+        </footer>
     </div>
 
     <script>
@@ -145,12 +673,12 @@
         let filesData = {};
         let availableMetrics = [];
         let sortByMetric = 'metric_cosine';
-        let feedback = {}; // {"filepath:fragment_index": "positive"|"negative"}
+        let feedback = {};
         
         const metricLabels = {
-            'metric_cosine': 'Косинусное расстояние',
-            'metric_word_match': 'Совпадение слов',
-            'metric_euclidean': 'Евклидово расстояние'
+            'metric_cosine': 'Косинус',
+            'metric_word_match': 'Слова',
+            'metric_euclidean': 'Евклид'
         };
         
         function formatTime(seconds) {
@@ -169,8 +697,8 @@
             const sortSelect = document.getElementById('sortSelect');
             
             checkboxes.innerHTML = availableMetrics.map(m => `
-                <label class="metric-checkbox">
-                    <input type="checkbox" value="${m.name}" ${m.name === 'metric_cosine' ? 'checked' : ''}>
+                <label class="chip ${m.name === 'metric_cosine' ? 'active' : ''}">
+                    <input type="checkbox" value="${m.name}" ${m.name === 'metric_cosine' ? 'checked' : ''} onchange="toggleChip(this)">
                     ${metricLabels[m.name] || m.display_name}
                 </label>
             `).join('');
@@ -181,29 +709,37 @@
                 </option>
             `).join('');
             
-            // Чекбоксы для уточнения (только embed=true метрики)
             const refineCheckboxes = document.getElementById('refineMetricsCheckboxes');
             refineCheckboxes.innerHTML = availableMetrics
                 .filter(m => m.embed)
                 .map(m => `
-                    <label class="refine-metric-cb">
-                        <input type="checkbox" value="${m.name}" ${m.name === 'metric_cosine' ? 'checked' : ''}>
+                    <label class="chip ${m.name === 'metric_cosine' ? 'active' : ''}">
+                        <input type="checkbox" value="${m.name}" ${m.name === 'metric_cosine' ? 'checked' : ''} onchange="toggleChip(this)">
                         ${metricLabels[m.name] || m.display_name}
                     </label>
                 `).join('');
             
             sortSelect.addEventListener('change', () => {
                 sortByMetric = sortSelect.value;
-                // Проверить, что метрика выбрана
-                const checkbox = document.querySelector(`input[value="${sortByMetric}"]`);
+                const checkbox = document.querySelector(`#metricsCheckboxes input[value="${sortByMetric}"]`);
                 if (checkbox && !checkbox.checked) {
                     checkbox.checked = true;
+                    checkbox.parentElement.classList.add('active');
                 }
             });
         }
         
+        function toggleChip(input) {
+            input.parentElement.classList.toggle('active', input.checked);
+        }
+        
         function getSelectedMetrics() {
             const checked = document.querySelectorAll('#metricsCheckboxes input:checked');
+            return Array.from(checked).map(c => c.value);
+        }
+        
+        function getRefineMetrics() {
+            const checked = document.querySelectorAll('#refineMetricsCheckboxes input:checked');
             return Array.from(checked).map(c => c.value);
         }
         
@@ -212,37 +748,47 @@
             const files = Object.values(filesData);
             
             if (files.length === 0) {
-                list.innerHTML = '<li class="empty">Папка FILES пуста</li>';
+                list.innerHTML = `<div class="empty-state">
+                    <span class="material-symbols-outlined">folder_open</span>
+                    Папка FILES пуста
+                </div>`;
                 return;
             }
             
             list.innerHTML = files.map(f => {
-                let badge = '';
-                if (f.processing) {
-                    badge = `<span class="status-badge status-processing">${f.progress || 0}%</span>`;
-                } else if (f.icon === 'green') {
-                    badge = '<span class="status-badge status-green">✓</span>';
-                } else if (f.icon === 'yellow') {
-                    badge = '<span class="status-badge status-yellow">!</span>';
-                } else if (f.icon === 'red') {
-                    badge = '<span class="status-badge status-red">✗</span>';
-                } else {
-                    badge = '<span class="status-badge status-pending">—</span>';
-                }
+                let iconClass = '';
+                let iconName = 'description';
+                let meta = '';
                 
-                let eta = '';
-                if (f.processing && f.eta_file > 0) {
-                    eta = `<div class="file-eta">≈ ${formatTime(f.eta_file)}</div>`;
+                if (f.processing) {
+                    iconClass = 'processing';
+                    iconName = 'sync';
+                    meta = `${f.progress || 0}%`;
+                    if (f.eta_file > 0) meta += ` • ≈${formatTime(f.eta_file)}`;
+                } else if (f.icon === 'green') {
+                    iconClass = 'green';
+                    iconName = 'check_circle';
+                    meta = 'Индексирован';
+                } else if (f.icon === 'yellow') {
+                    iconClass = 'yellow';
+                    iconName = 'schedule';
+                    meta = 'Ожидает';
+                } else if (f.icon === 'red') {
+                    iconClass = 'red';
+                    iconName = 'error';
+                    meta = 'Ошибка';
                 }
                 
                 return `
-                    <li class="file-item" data-file="${f.filename}">
-                        ${badge}
-                        <div class="file-info">
-                            <div class="file-name" title="${f.filename}">${f.filename}</div>
-                            ${eta}
+                    <div class="source-item" data-file="${f.filename}">
+                        <div class="source-icon ${iconClass}">
+                            <span class="material-symbols-outlined">${iconName}</span>
                         </div>
-                    </li>
+                        <div class="source-info">
+                            <div class="source-name" title="${f.filename}">${f.filename}</div>
+                            <div class="source-meta">${meta}</div>
+                        </div>
+                    </div>
                 `;
             }).join('');
         }
@@ -263,7 +809,7 @@
             const progressEta = document.getElementById('progressEta');
             
             btn.disabled = true;
-            btn.textContent = 'Обработка...';
+            btn.innerHTML = '<span class="material-symbols-outlined">sync</span> Обработка...';
             
             const eventSource = new EventSource('/api/refresh');
             
@@ -319,7 +865,7 @@
                     case 'done':
                         eventSource.close();
                         btn.disabled = false;
-                        btn.textContent = 'Обновить';
+                        btn.innerHTML = '<span class="material-symbols-outlined">refresh</span> Обновить';
                         totalProgress.classList.remove('active');
                         loadFiles();
                         break;
@@ -329,7 +875,7 @@
             eventSource.onerror = () => {
                 eventSource.close();
                 btn.disabled = false;
-                btn.textContent = 'Обновить';
+                btn.innerHTML = '<span class="material-symbols-outlined">refresh</span> Обновить';
                 totalProgress.classList.remove('active');
             };
         }
@@ -347,7 +893,10 @@
             sortByMetric = document.getElementById('sortSelect').value;
             
             const list = document.getElementById('resultsList');
-            list.innerHTML = '<div class="loading">Поиск...</div>';
+            list.innerHTML = `<div class="empty-state">
+                <span class="material-symbols-outlined">hourglass_empty</span>
+                Поиск...
+            </div>`;
             
             try {
                 const res = await fetch('/api/search', {
@@ -361,38 +910,138 @@
                 });
                 currentResults = await res.json();
                 
-                if (currentResults.length === 0) {
-                    list.innerHTML = '<div class="empty">Ничего не найдено</div>';
-                    return;
-                }
-                
                 feedback = {};
                 updateFeedbackUI();
                 
-                list.innerHTML = currentResults.map((r, i) => {
-                    const key = `${r.filepath}:${r.fragment_index}`;
-                    const scoresHtml = Object.entries(r.scores).map(([name, val]) => {
-                        const isPrimary = name === sortByMetric;
-                        const label = metricLabels[name] || name.replace('metric_', '');
-                        return `<span class="result-score ${isPrimary ? 'primary' : ''}" title="${label}">${(val * 100).toFixed(1)}%</span>`;
-                    }).join('');
-                    
-                    return `
-                        <div class="result-item" data-key="${key}">
-                            <div class="result-header" onclick="showPreview(${i})">
-                                <span class="result-file">${r.filename}</span>
-                                <div class="result-scores">${scoresHtml}</div>
-                            </div>
-                            <div class="result-fragment" onclick="showPreview(${i})">${escapeHtml(r.fragment.substring(0, 150))}${r.fragment.length > 150 ? '...' : ''}</div>
-                            <div class="result-feedback">
-                                <button class="feedback-btn positive" onclick="setFeedback(${i}, 'positive', event)">+ Релевантно</button>
-                                <button class="feedback-btn negative" onclick="setFeedback(${i}, 'negative', event)">− Не релевантно</button>
-                            </div>
-                        </div>
-                    `;
-                }).join('');
+                renderResults();
             } catch (e) {
-                list.innerHTML = '<div class="empty">Ошибка поиска</div>';
+                list.innerHTML = `<div class="empty-state">
+                    <span class="material-symbols-outlined">error</span>
+                    Ошибка поиска
+                </div>`;
+            }
+        }
+        
+        function renderResults(savedFeedback = null) {
+            const list = document.getElementById('resultsList');
+            const fb = savedFeedback || feedback;
+            
+            if (currentResults.length === 0) {
+                list.innerHTML = `<div class="empty-state">
+                    <span class="material-symbols-outlined">search_off</span>
+                    Ничего не найдено
+                </div>`;
+                return;
+            }
+            
+            list.innerHTML = currentResults.map((r, i) => {
+                const key = `${r.filepath}:${r.fragment_index}`;
+                const feedbackState = fb[key];
+                
+                const scoresHtml = Object.entries(r.scores).map(([name, val]) => {
+                    const isPrimary = name === sortByMetric;
+                    const label = metricLabels[name] || name.replace('metric_', '');
+                    return `<span class="score-badge ${isPrimary ? 'primary' : ''}" title="${label}">${(val * 100).toFixed(1)}%</span>`;
+                }).join('');
+                
+                return `
+                    <div class="result-item" data-key="${key}" data-index="${i}">
+                        <div class="result-header">
+                            <span class="result-file">${r.filename}</span>
+                            <div class="result-scores">${scoresHtml}</div>
+                        </div>
+                        <div class="result-fragment" onclick="showPreview(${i})">${escapeHtml(r.fragment.substring(0, 200))}${r.fragment.length > 200 ? '...' : ''}</div>
+                        <div class="result-actions">
+                            <button class="feedback-btn positive ${feedbackState === 'positive' ? 'active' : ''}" onclick="setFeedback(${i}, 'positive', event)">
+                                <span class="material-symbols-outlined" style="font-size: 16px;">thumb_up</span>
+                                Релевантно
+                            </button>
+                            <button class="feedback-btn negative ${feedbackState === 'negative' ? 'active' : ''}" onclick="setFeedback(${i}, 'negative', event)">
+                                <span class="material-symbols-outlined" style="font-size: 16px;">thumb_down</span>
+                                Не релевантно
+                            </button>
+                        </div>
+                    </div>
+                `;
+            }).join('');
+        }
+        
+        function setFeedback(index, type, event) {
+            event.stopPropagation();
+            const r = currentResults[index];
+            const key = `${r.filepath}:${r.fragment_index}`;
+            
+            if (feedback[key] === type) {
+                delete feedback[key];
+            } else {
+                feedback[key] = type;
+            }
+            
+            const item = document.querySelector(`.result-item[data-key="${CSS.escape(key)}"]`);
+            if (item) {
+                item.querySelectorAll('.feedback-btn').forEach(btn => btn.classList.remove('active'));
+                if (feedback[key]) {
+                    item.querySelector(`.feedback-btn.${feedback[key]}`).classList.add('active');
+                }
+            }
+            
+            updateFeedbackUI();
+        }
+        
+        function updateFeedbackUI() {
+            const count = Object.keys(feedback).length;
+            document.getElementById('feedbackCount').textContent = count;
+            document.getElementById('refineSection').classList.toggle('active', count > 0);
+        }
+        
+        async function refineSearch() {
+            const query = document.getElementById('searchInput').value.trim();
+            if (!query) return;
+            
+            const positive = [];
+            const negative = [];
+            
+            for (const [key, type] of Object.entries(feedback)) {
+                const [filepath, fragIdx] = key.split(':');
+                const item = { filepath, fragment_index: parseInt(fragIdx) };
+                if (type === 'positive') positive.push(item);
+                else negative.push(item);
+            }
+            
+            const selectedMetrics = getSelectedMetrics();
+            const refineMetrics = getRefineMetrics();
+            sortByMetric = document.getElementById('sortSelect').value;
+            
+            const list = document.getElementById('resultsList');
+            list.innerHTML = `<div class="empty-state">
+                <span class="material-symbols-outlined">hourglass_empty</span>
+                Уточнение...
+            </div>`;
+            
+            try {
+                const res = await fetch('/api/refine', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ 
+                        query,
+                        positive,
+                        negative,
+                        metrics: selectedMetrics,
+                        refine_metrics: refineMetrics,
+                        sort_by: sortByMetric
+                    })
+                });
+                currentResults = await res.json();
+                
+                const savedFeedback = {...feedback};
+                renderResults(savedFeedback);
+                feedback = savedFeedback;
+                updateFeedbackUI();
+            } catch (e) {
+                list.innerHTML = `<div class="empty-state">
+                    <span class="material-symbols-outlined">error</span>
+                    Ошибка уточнения
+                </div>`;
             }
         }
         
@@ -426,115 +1075,6 @@
         
         function escapeRegExp(string) {
             return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-        }
-        
-        function setFeedback(index, type, event) {
-            event.stopPropagation();
-            const r = currentResults[index];
-            const key = `${r.filepath}:${r.fragment_index}`;
-            
-            if (feedback[key] === type) {
-                delete feedback[key];
-            } else {
-                feedback[key] = type;
-            }
-            
-            // Обновить UI кнопок
-            const item = document.querySelector(`.result-item[data-key="${CSS.escape(key)}"]`);
-            if (item) {
-                item.querySelectorAll('.feedback-btn').forEach(btn => btn.classList.remove('active'));
-                if (feedback[key]) {
-                    item.querySelector(`.feedback-btn.${feedback[key]}`).classList.add('active');
-                }
-            }
-            
-            updateFeedbackUI();
-        }
-        
-        function updateFeedbackUI() {
-            const count = Object.keys(feedback).length;
-            document.getElementById('feedbackCount').textContent = count;
-            document.getElementById('refineSection').classList.toggle('active', count > 0);
-        }
-        
-        function getRefineMetrics() {
-            const checked = document.querySelectorAll('#refineMetricsCheckboxes input:checked');
-            return Array.from(checked).map(c => c.value);
-        }
-        
-        async function refineSearch() {
-            const query = document.getElementById('searchInput').value.trim();
-            if (!query) return;
-            
-            const positive = [];
-            const negative = [];
-            
-            for (const [key, type] of Object.entries(feedback)) {
-                const [filepath, fragIdx] = key.split(':');
-                const item = { filepath, fragment_index: parseInt(fragIdx) };
-                if (type === 'positive') positive.push(item);
-                else negative.push(item);
-            }
-            
-            const selectedMetrics = getSelectedMetrics();
-            const refineMetrics = getRefineMetrics();
-            sortByMetric = document.getElementById('sortSelect').value;
-            
-            const list = document.getElementById('resultsList');
-            list.innerHTML = '<div class="loading">Уточнение...</div>';
-            
-            try {
-                const res = await fetch('/api/refine', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ 
-                        query,
-                        positive,
-                        negative,
-                        metrics: selectedMetrics,
-                        refine_metrics: refineMetrics,
-                        sort_by: sortByMetric
-                    })
-                });
-                currentResults = await res.json();
-                
-                // Сохраняем feedback и перерисовываем
-                const savedFeedback = {...feedback};
-                
-                if (currentResults.length === 0) {
-                    list.innerHTML = '<div class="empty">Ничего не найдено</div>';
-                    return;
-                }
-                
-                list.innerHTML = currentResults.map((r, i) => {
-                    const key = `${r.filepath}:${r.fragment_index}`;
-                    const fb = savedFeedback[key];
-                    const scoresHtml = Object.entries(r.scores).map(([name, val]) => {
-                        const isPrimary = name === sortByMetric;
-                        const label = metricLabels[name] || name.replace('metric_', '');
-                        return `<span class="result-score ${isPrimary ? 'primary' : ''}" title="${label}">${(val * 100).toFixed(1)}%</span>`;
-                    }).join('');
-                    
-                    return `
-                        <div class="result-item" data-key="${key}">
-                            <div class="result-header" onclick="showPreview(${i})">
-                                <span class="result-file">${r.filename}</span>
-                                <div class="result-scores">${scoresHtml}</div>
-                            </div>
-                            <div class="result-fragment" onclick="showPreview(${i})">${escapeHtml(r.fragment.substring(0, 150))}${r.fragment.length > 150 ? '...' : ''}</div>
-                            <div class="result-feedback">
-                                <button class="feedback-btn positive ${fb === 'positive' ? 'active' : ''}" onclick="setFeedback(${i}, 'positive', event)">+ Релевантно</button>
-                                <button class="feedback-btn negative ${fb === 'negative' ? 'active' : ''}" onclick="setFeedback(${i}, 'negative', event)">− Не релевантно</button>
-                            </div>
-                        </div>
-                    `;
-                }).join('');
-                
-                feedback = savedFeedback;
-                updateFeedbackUI();
-            } catch (e) {
-                list.innerHTML = '<div class="empty">Ошибка уточнения</div>';
-            }
         }
         
         loadMetrics();

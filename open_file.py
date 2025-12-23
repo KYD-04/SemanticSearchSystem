@@ -31,16 +31,40 @@ class OpenFile:
     
     @staticmethod
     def open_pdf(path: str) -> str:
-        """Открыть PDF файл."""
+        """Открыть PDF файл и вернуть текст, разделенный на абзацы."""
         try:
-            import pypdf
-            reader = pypdf.PdfReader(path)
-            text = []
-            for page in reader.pages:
-                text.append(page.extract_text() or '')
-            return '\n'.join(text)
+            import pdfplumber
+
+            all_paragraphs = []
+
+            with pdfplumber.open(path) as pdf:
+                for page in pdf.pages:
+                    # Извлекаем текст с use_text_flow для объединения строк в блоки
+                    page_text = page.extract_text(
+                        use_text_flow=True,
+                        x_tolerance=3,
+                        y_tolerance=3
+                    )
+
+                    if page_text:
+                        # Разделяем текст на блоки по двойному переносу (абзацы)
+                        raw_blocks = page_text.split('\n\n')
+
+                        for block in raw_blocks:
+                            # Очищаем блок: заменяем внутренние переносы на пробелы
+                            # Это превращает "разорванный" PDF-текст в цельные абзацы
+                            clean_block = " ".join(block.splitlines())
+
+                            if clean_block.strip():
+                                all_paragraphs.append(clean_block.strip())
+
+            # Склеиваем все абзацы через двойной перенос
+            return '\n\n'.join(all_paragraphs)
+
         except ImportError:
-            raise ImportError("pypdf не установлен. Установите: pip install pypdf")
+            raise ImportError("pdfplumber не установлен. Установите: pip install pdfplumber")
+        except Exception as e:
+            return f"Ошибка при чтении файла: {e}"
     
     @staticmethod
     def open_docx(path: str) -> str:
